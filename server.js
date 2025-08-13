@@ -35,6 +35,9 @@ const io = socketIo(server, {
 
 // Настройка trust proxy для express-rate-limit
 app.set('trust proxy', 1);
+mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 30000 })
+  .then(() => logger.info('MongoDB подключён'))
+  .catch(err => logger.error('Ошибка MongoDB:', err));
 
 // Логирование
 const logger = winston.createLogger({
