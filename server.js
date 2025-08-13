@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const dotenv = require('dotenv');
 const crypto = require('crypto');
-const { TronWeb } = require('tronweb'); // Исправленный импорт
+const { TronWeb } = require('tronweb');
 const fetch = require('node-fetch');
 const { check, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
@@ -32,6 +32,9 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
 });
+
+// Настройка trust proxy для express-rate-limit
+app.set('trust proxy', 1);
 
 // Логирование
 const logger = winston.createLogger({
@@ -835,7 +838,6 @@ app.post('/posts/:id/repost', authMiddleware, async (req, res) => {
   }
 });
 
-// WebSocket чат
 // Получение статистики пользователя
 app.get('/api/stats/:userId', authMiddleware, async (req, res) => {
   try {
@@ -848,6 +850,8 @@ app.get('/api/stats/:userId', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Ошибка сервера', details: err.message });
   }
 });
+
+// WebSocket чат
 io.on('connection', (socket) => {
   logger.info(`Пользователь подключён: ${socket.id}`);
   socket.on('join', (data) => {
