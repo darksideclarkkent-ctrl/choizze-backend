@@ -64,7 +64,7 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // Подключение к MongoDB
-mongoose.connect(process.env.MONGODB_URI)
+mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 30000 })
   .then(() => logger.info('MongoDB подключён'))
   .catch(err => logger.error('Ошибка MongoDB:', err));
 
