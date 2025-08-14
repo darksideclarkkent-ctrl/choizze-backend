@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CHOIZZE Chat Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #chat { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; }
+    #messageInput { width: 80%; padding: 5px; }
+    #sendButton { padding: 5px 10px; }
+    #userIdInput { padding: 5px; margin-right: 10px; }
+  </style>
+</head>
+<body>
+  <h1>CHOIZZE Chat Test</h1>
+  <label for="userIdInput">Ваш userId:</label>
+  <input type="text" id="userIdInput" placeholder="Введите ваш userId">
+  <button id="joinButton">Присоединиться</button>
+  <div id="chat"></div>
+  <input type="text" id="messageInput" placeholder="Введите сообщение">
+  <input type="text" id="receiverIdInput" placeholder="Введите receiverId">
+  <button id="sendButton">Отправить</button>
+
+  <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.5/client-dist/socket.io.min.js"></script>
+  <script>
+    const socket = io('http://localhost:3000');
+    let userId = null;
+
+    socket.on('connect', () => {
+      console.log('Подключён:', socket.id);
+    });
+
+    document.getElementById('joinButton').addEventListener('click', () => {
+      const userIdInput = document.getElementById('userIdInput').value.trim();
+      if (userIdInput) {
+        userId = userIdInput;
+        socket.emit('join', { userId });
+        console.log(`Присоединился как ${userId}`);
+        document.getElementById('userIdInput').disabled = true;
+        document.getElementById('joinButton').disabled = true;
+      } else {
+        alert('Введите userId!');
+      }
+    });
+
+    socket.on('message', (msg) => {
+      const chat = document.getElementById('chat');
+      const messageElement = document.createElement('p');
+      messageElement.textContent = `${msg.senderId}: ${msg.content} (${new Date(msg.timestamp).toLocaleTimeString()})`;
+      chat.appendChild(messageElement);
+      chat.scrollTop = chat.scrollHeight;
+    });
+
+    document.getElementById('sendButton').addEventListener('click', () => {
+      const input = document.getElementById('messageInput');
+      const receiverIdInput = document.getElementById('receiverIdInput');
+      const content = input.value.trim();
+      const receiverId = receiverIdInput.value.trim();
+      if (content && receiverId && userId) {
+        const message = {
+          senderId: userId,
+          receiverId: receiverId,
+          content: content
+        };
+        socket.emit('message', message);
+        const chat = document.getElementById('chat');
+        const messageElement = document.createElement('p');
+        messageElement.textContent = `${message.senderId}: ${message.content} (${new Date().toLocaleTimeString()})`;
+        chat.appendChild(messageElement);
+        chat.scrollTop = chat.scrollHeight;
+        input.value = '';
+      } else {
+        alert('Введите сообщение, receiverId и убедитесь, что вы присоединились!');
+      }
+    });
+  </script>
+</body>
+</html>
