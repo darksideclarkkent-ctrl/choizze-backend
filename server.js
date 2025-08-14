@@ -35,7 +35,16 @@ const io = socketIo(server, {
 
 // Настройка trust proxy для express-rate-limit
 app.set('trust proxy', 1);
-mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 30000 })
+
+// Подключение к MongoDB с увеличенными таймаутами и retry
+mongoose.connect(process.env.MONGODB_URI, {
+  serverSelectionTimeoutMS: 50000, // Увеличенный таймаут выбора сервера
+  connectTimeoutMS: 50000, // Таймаут соединения
+  socketTimeoutMS: 45000, // Таймаут сокета
+  maxPoolSize: 10, // Максимальный пул соединений
+  retryWrites: true, // Повторные попытки записи
+  retryReads: true // Повторные попытки чтения
+})
   .then(() => logger.info('MongoDB подключён'))
   .catch(err => logger.error('Ошибка MongoDB:', err));
 
@@ -68,11 +77,6 @@ const limiter = rateLimit({
   message: 'Слишком много запросов, попробуйте позже'
 });
 app.use(limiter);
-
-// Подключение к MongoDB
-mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 30000 })
-  .then(() => logger.info('MongoDB подключён'))
-  .catch(err => logger.error('Ошибка MongoDB:', err));
 
 // Схемы MongoDB
 const userSchema = new mongoose.Schema({
