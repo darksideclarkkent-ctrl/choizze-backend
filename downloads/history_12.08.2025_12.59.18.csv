@@ -1,7 +1,0 @@
-Date;Type;Sender;Credit;;Recipient;Debit;;Pay system;Status;Id;Shop URL;Shop ID;Order ID;API;Description
-12.08.2025 11:47:22;transfer;P80543937;1.00;RUB;P1080587274;-;-;;success;2250048721;;;;;"g3lT5xZ9q2Hp"
-12.08.2025 11:47:00;transfer;P80543937;1.00;RUB;P1080587274;-;-;;success;2250048647;;;;;"T1rF9m8K2dQw"
-12.08.2025 11:46:40;transfer;P80543937;1.00;RUB;P1080587274;-;-;;success;2250048574;;;;;"aB4fK9Q2mX7d"
-10.08.2025 12:11:11;transfer;P1080587274;-;-;P80543937;71.42;RUB;;success;2249456729;;;;;""
-4
-;;;3.00;RUB;;71.42;RUB
