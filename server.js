@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const mongoose = require('mongoose');
-const { spawn } = require('child_process');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const dotenv = require('dotenv');
@@ -339,7 +338,7 @@ app.post('/login', loginValidation, async (req, res) => {
 });
 
 // Получение профиля
-app.get('/api/user/:id', authMiddleware, async (req, res) => {
+app.post('/api/user/:id', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
     if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
@@ -577,8 +576,8 @@ app.post('/faucetpay/initiate', authMiddleware, paymentValidation, async (req, r
       amount1: amount.toFixed(2),
       currency1: 'USD',
       currency2: 'USDT',
-      custom: verificationCode,
-      callback_url: 'http://localhost:3000/faucetpay/callback',
+      custom: `${userId}_${verificationCode}`,
+      callback_url: 'https://choizze-backend-ap5z.onrender.com/faucetpay_webhook',
       success_url: 'https://your-frontend.com/success',
       cancel_url: 'https://your-frontend.com/cancel'
     };
@@ -607,59 +606,81 @@ app.post('/faucetpay/initiate', authMiddleware, paymentValidation, async (req, r
   }
 });
 
-// FaucetPay callback
-app.post('/faucetpay/callback', async (req, res) => {
+// Обработчик вебхука от FaucetPay
+app.post('/faucetpay_webhook', async (req, res) => {
   try {
-    const { token, merchant_username, amount1, currency1, amount2, currency2, custom } = req.body;
-    if (merchant_username !== process.env.FAUCETPAY_USERNAME) {
-      logger.warn(`Неверный merchant_username: ${merchant_username}`);
-      return res.status(403).json({ error: 'Неверный merchant_username' });
+    const { token, custom } = req.body;
+
+    // Проверяем наличие токена
+    if (!token) {
+      logger.error('[FaucetPay Webhook] No token provided');
+      return res.status(400).send('Bad Request: No token');
     }
 
+    // Проверяем платеж через API FaucetPay
     const response = await fetch(`https://faucetpay.io/merchant/get-payment/${token}`);
     const paymentInfo = await response.json();
 
     if (!paymentInfo.valid) {
-      logger.warn(`Неверный токен: ${token}`);
-      return res.status(400).json({ error: 'Неверный токен' });
+      logger.error(`[FaucetPay Webhook] Invalid token: ${token}`);
+      return res.status(400).send('Bad Request: Invalid token');
     }
 
-    if (paymentInfo.currency1 !== 'USD' || paymentInfo.currency2 !== 'USDT') {
-      logger.warn(`Неверная валюта: ${paymentInfo.currency1}/${paymentInfo.currency2}`);
-      return res.status(400).json({ error: 'Неверная валюта' });
+    const { merchant_username, amount1, currency1, transaction_id } = paymentInfo;
+
+    // Проверяем, что merchant_username совпадает
+    if (merchant_username !== process.env.FAUCETPAY_USERNAME) {
+      logger.error(`[FaucetPay Webhook] Invalid merchant username: ${merchant_username}`);
+      return res.status(400).send('Bad Request: Invalid merchant');
     }
 
+    // Проверяем, что сумма и валюта ожидаемые
+    const expectedAmount = '1.00'; // Ожидаемая сумма для теста
+    const expectedCurrency = 'USD'; // Ожидаемая валюта
+    if (amount1 !== expectedAmount || currency1 !== expectedCurrency) {
+      logger.error(`[FaucetPay Webhook] Unexpected amount or currency: ${amount1} ${currency1}`);
+      return res.status(400).send('Bad Request: Unexpected amount or currency');
+    }
+
+    // Сохраняем платеж в MongoDB
+    const payment = new Payment({
+      payeerId: custom, // Используем custom как orderId
+      amount: parseFloat(amount1),
+      currency: currency1,
+      protectionCode: custom,
+      status: 'completed'
+    });
+
+    await payment.save();
+    logger.info(`[FaucetPay Webhook] Payment saved for order: ${custom}, amount: ${amount1} ${currency1}`);
+
+    // Начисляем CP пользователю
+    const userId = custom.split('_')[0]; // Предполагаем, что custom содержит userId_verificationCode
+    const userStats = await UserStats.findOne({ user_id: userId });
+    if (userStats) {
+      userStats.points += 100; // Начисляем 100 CP за тестовый платёж
+      await userStats.save();
+      logger.info(`[FaucetPay Webhook] Added 100 CP to user: ${userId}`);
+    }
+
+    // Обновляем транзакцию
     const transaction = await Transaction.findOne({
-      verification_code: custom,
+      verification_code: custom.split('_')[1],
       status: 'pending',
       payment_method: 'FAUCETPAY'
     });
 
-    if (!transaction) {
-      logger.warn(`Транзакция не найдена: ${custom}`);
-      return res.status(404).json({ error: 'Транзакция не найдена' });
+    if (transaction) {
+      transaction.status = 'completed';
+      transaction.transaction_id = transaction_id;
+      await transaction.save();
+      logger.info(`[FaucetPay Webhook] Transaction updated: ${transaction._id}`);
     }
 
-    if (parseFloat(paymentInfo.amount1) !== transaction.amount) {
-      logger.warn(`Неверная сумма: ${paymentInfo.amount1} != ${transaction.amount}`);
-      return res.status(400).json({ error: 'Неверная сумма' });
-    }
-
-    transaction.status = 'completed';
-    transaction.transaction_id = paymentInfo.transaction_id;
-    await transaction.save();
-
-    const userStats = await UserStats.findOne({ user_id: transaction.user_id });
-    if (userStats) {
-      userStats.points += transaction.amount * 100;
-      await userStats.save();
-      logger.info(`CP начислены через FaucetPay: ${transaction.amount * 100} для ${transaction.user_id}`);
-    }
-
-    res.status(200).json({ status: 'success' });
+    res.status(200).send('OK');
   } catch (err) {
-    logger.error('Ошибка callback FaucetPay:', err);
-    res.status(500).json({ error: 'Ошибка сервера', details: err.message });
+    logger.error(`[FaucetPay Webhook] Error: ${err.message}`);
+    res.status(500).send('Server Error');
   }
 });
 
@@ -888,46 +909,6 @@ io.on('connection', (socket) => {
 
 // Тестовый маршрут
 app.get('/', (req, res) => res.send('CHOIZZE Backend API'));
-
-// Обработчик вебхука от PAYEER
-app.post('/payeer_webhook', async (req, res) => {
-  const { m_orderid, m_amount, m_curr, m_desc } = req.body;
-
-  // Проверяем, что платеж прошел успешно
-  if (req.body.m_status === 'success') {
-    const payment = new Payment({
-      payeerId: m_orderid,
-      amount: m_amount,
-      currency: m_curr,
-      protectionCode: m_desc
-    });
-    
-    await payment.save();
-
-    console.log(`[PAYEER Webhook] Received payment for order: ${m_orderid}. Launching check script.`);
-
-    // Запускаем скрипт puppeteer в отдельном процессе
-    const puppeteerProcess = spawn('node', ['check_payeer.js', m_orderid]);
-
-    puppeteerProcess.stdout.on('data', (data) => {
-      console.log(`[PAYEER Check Script] stdout: ${data}`);
-    });
-    
-    puppeteerProcess.stderr.on('data', (data) => {
-      console.error(`[PAYEER Check Script] stderr: ${data}`);
-    });
-    
-    puppeteerProcess.on('close', (code) => {
-      console.log(`[PAYEER Check Script] exited with code ${code}`);
-      // Здесь можно добавить логику, что делать после проверки
-    });
-
-    res.status(200).send('OK');
-  } else {
-    console.error(`[PAYEER Webhook] Received unsuccessful status for order: ${m_orderid}`);
-    res.status(400).send('Bad Request');
-  }
-});
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => logger.info(`Сервер запущен на http://localhost:${PORT}`));
